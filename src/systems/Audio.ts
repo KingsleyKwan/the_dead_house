@@ -84,4 +84,15 @@ export class AudioBus {
       setTimeout(() => this.tone(f, 0.18, "triangle", 0.06), i * 120);
     });
   }
+
+  streakUp(tier: number) {
+    const base = 300 + tier * 60;
+    this.tone(base, 0.08, "square", 0.06);
+    this.tone(base + 120, 0.14, "triangle", 0.05, 40);
+  }
+
+  nearMiss() {
+    this.tone(180, 0.06, "square", 0.04);
+    this.tone(120, 0.1, "sawtooth", 0.035, -40);
+  }
 }

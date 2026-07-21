@@ -41,6 +41,21 @@ export interface PlayerState {
   color: string;
   crosshair: Vec2;
   flash: number;
+  /** Consecutive enemy hits; drives score multiplier */
+  streak: number;
+  /** Score multiplier from streak (1–5), drops on damage */
+  multiplier: number;
+}
+
+export const BEST_SCORE_KEY = "tdh-best-score";
+
+/** Map hit streak to score multiplier (Virtua Cop–style tiers). */
+export function streakToMultiplier(streak: number): number {
+  if (streak >= 15) return 5;
+  if (streak >= 10) return 4;
+  if (streak >= 6) return 3;
+  if (streak >= 3) return 2;
+  return 1;
 }
 
 export interface Entity {

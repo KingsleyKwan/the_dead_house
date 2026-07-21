@@ -12,6 +12,8 @@ import {
   START_LIVES,
   MAX_LIVES,
   CONTINUE_TIME,
+  BEST_SCORE_KEY,
+  streakToMultiplier,
 } from "./types";
 import { CHAPTERS } from "../data/chapters";
 import { GAME_VERSION } from "./version";
@@ -45,6 +47,15 @@ interface DefendPrompt {
   hitsNeed: number;
 }
 
+interface FloatScore {
+  x: number;
+  y: number;
+  text: string;
+  life: number;
+  max: number;
+  color: string;
+}
+
 export class Game {
   private ctx: CanvasRenderingContext2D;
   private input: Input;
@@ -71,6 +82,11 @@ export class Game {
   muzzle: { x: number; y: number; life: number }[] = [];
   endingKind: "good" | "normal" | "bad" = "normal";
   routesTaken: string[] = [];
+  shotsFired = 0;
+  shotsHit = 0;
+  headshots = 0;
+  bestStreak = 0;
+  newBest = false;
   private pendingAfterClear: "nextChapter" | "ending" | null = null;
   private defend: DefendPrompt = {
     active: false,
@@ -93,7 +109,10 @@ export class Game {
     color: string;
     size: number;
   }[] = [];
+  floatScores: FloatScore[] = [];
   private wasExploring = true;
+  private nearMissCooldown = 0;
+  private bestScoreCached = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -102,6 +121,26 @@ export class Game {
     this.input = new Input(canvas);
     this.resetPlayers(1);
     this.input.bindReloadButton(document.getElementById("btn-reload"));
+    this.bestScoreCached = this.loadBestScore();
+  }
+
+  private loadBestScore(): number {
+    try {
+      const raw = localStorage.getItem(BEST_SCORE_KEY);
+      const n = raw ? Number(raw) : 0;
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private saveBestScore(score: number) {
+    try {
+      localStorage.setItem(BEST_SCORE_KEY, String(score));
+      this.bestScoreCached = score;
+    } catch {
+      /* ignore quota / private mode */
+    }
   }
 
   private resetPlayers(count: 1 | 2) {
@@ -119,6 +158,8 @@ export class Game {
         color: "#5ec8ff",
         crosshair: { x: W * 0.4, y: H / 2 },
         flash: 0,
+        streak: 0,
+        multiplier: 1,
       },
       {
         id: 1,
@@ -133,6 +174,8 @@ export class Game {
         color: "#ff8a5c",
         crosshair: { x: W * 0.65, y: H / 2 },
         flash: 0,
+        streak: 0,
+        multiplier: 1,
       },
     ];
   }
@@ -152,6 +195,13 @@ export class Game {
     this.chapterIndex = 0;
     this.totalCiviliansSaved = 0;
     this.routesTaken = [];
+    this.shotsFired = 0;
+    this.shotsHit = 0;
+    this.headshots = 0;
+    this.bestStreak = 0;
+    this.newBest = false;
+    this.floatScores = [];
+    this.nearMissCooldown = 0;
     this.beginChapter();
   }
 
@@ -205,6 +255,46 @@ export class Game {
     this.flashMessages.push({ text, life: 2 });
   }
 
+  private pushFloat(x: number, y: number, points: number, mult: number) {
+    const text = mult > 1 ? `+${points} x${mult}` : `+${points}`;
+    this.floatScores.push({
+      x,
+      y,
+      text,
+      life: 0.9,
+      max: 0.9,
+      color: mult >= 4 ? "#ffd36a" : mult > 1 ? "#8fb35a" : "#f2e6c9",
+    });
+  }
+
+  /** Enemy hit: grow streak / multiplier; apply to combat score only. */
+  private registerCombatHit(p: PlayerState, basePoints: number, x: number, y: number, headshot: boolean) {
+    p.streak++;
+    this.bestStreak = Math.max(this.bestStreak, p.streak);
+    const fromStreak = streakToMultiplier(p.streak);
+    if (fromStreak > p.multiplier) {
+      p.multiplier = fromStreak;
+      this.audio.streakUp(p.multiplier);
+      if (p.multiplier >= 5) this.pushMsg("MAX MULTIPLIER");
+      else this.pushMsg(`STREAK x${p.multiplier}`);
+    }
+    const awarded = basePoints * p.multiplier;
+    p.score += awarded;
+    this.pushFloat(x, y - 20, awarded, p.multiplier);
+    if (headshot) this.headshots++;
+  }
+
+  private breakStreak(p: PlayerState) {
+    p.streak = 0;
+    p.multiplier = Math.max(1, p.multiplier - 2);
+  }
+
+  private breakAllStreaks() {
+    for (const p of this.players) {
+      if (p.active) this.breakStreak(p);
+    }
+  }
+
   update(dt: number) {
     this.time += dt;
     this.shake = Math.max(0, this.shake - dt * 20);
@@ -220,6 +310,14 @@ export class Game {
     this.muzzle = this.muzzle
       .map((m) => ({ ...m, life: m.life - dt }))
       .filter((m) => m.life > 0);
+    this.floatScores = this.floatScores
+      .map((f) => ({
+        ...f,
+        y: f.y - 40 * dt,
+        life: f.life - dt,
+      }))
+      .filter((f) => f.life > 0);
+    this.nearMissCooldown = Math.max(0, this.nearMissCooldown - dt);
 
     if (this.state === "title") {
       if (this.input.consumeMenuConfirm()) {
@@ -367,6 +465,7 @@ export class Game {
           p.ammo--;
           p.flash = 0.08;
           this.audio.shoot();
+          this.shotsFired++;
           this.muzzle.push({ x: p.crosshair.x, y: p.crosshair.y, life: 0.06 });
           this.resolveShot(p);
         }
@@ -410,6 +509,14 @@ export class Game {
           e.attackTimer = e.attackDelay;
           e.alive = false;
           e.dying = 0.01;
+        } else if (
+          e.z > 0.72 &&
+          this.nearMissCooldown <= 0 &&
+          (this.state === "playing" || this.state === "boss")
+        ) {
+          this.nearMissCooldown = 1.25;
+          this.audio.nearMiss();
+          this.pushMsg("CLOSE!");
         }
       }
 
@@ -517,7 +624,7 @@ export class Game {
     const choice = preferred ?? this.branchPending[this.branchPending.length - 1];
     this.routesTaken.push(choice.label);
     this.branchPending = null;
-    this.pushMsg(choice.label);
+    this.pushMsg(`ROUTE: ${choice.label}`);
     this.enterSegment(choice.next);
   }
 
@@ -547,7 +654,10 @@ export class Game {
       if (dx * dx + dy * dy <= this.defend.r * this.defend.r) {
         this.defend.hitsLeft--;
         this.audio.hit();
-        p.score += 150;
+        this.shotsHit++;
+        const pts = 150 * p.multiplier;
+        p.score += pts;
+        this.pushFloat(this.defend.x, this.defend.y - 24, pts, p.multiplier);
         if (this.defend.hitsLeft <= 0) {
           this.succeedDefend(p);
         } else {
@@ -570,9 +680,12 @@ export class Game {
       const result = this.hitTest(e, aim.x, aim.y);
       if (!result.hit) continue;
 
+      this.shotsHit++;
+
       if (e.kind === "civilian") {
         e.alive = false;
         p.lives = Math.max(0, p.lives - 1);
+        this.breakStreak(p);
         this.audio.hurt();
         this.shake = 8;
         this.pushMsg("DON'T SHOOT CIVILIANS!");
@@ -586,6 +699,7 @@ export class Game {
           this.pushMsg("LIFE UP");
         } else {
           p.score += 1000;
+          this.pushFloat(e.x, e.y - 20, 1000, 1);
           this.pushMsg("+1000");
         }
         this.audio.kill();
@@ -596,6 +710,7 @@ export class Game {
         e.broken = true;
         e.alive = false;
         p.score += 100;
+        this.pushFloat(e.x, e.y - 20, 100, 1);
         const roll = Math.random();
         const type = roll < 0.4 ? "life" : roll < 0.7 ? "frog" : "score";
         this.entities.push(makeItem(type, e.x, e.y - 30, 0.65));
@@ -614,7 +729,13 @@ export class Game {
         e.x += dir * (result.headshot ? 14 : 8);
         e.z = Math.max(0.15, e.z - (result.headshot ? 0.04 : 0.02));
         this.spawnGore(aim.x, aim.y, result.headshot);
-        p.score += result.headshot ? 200 : 100;
+        this.registerCombatHit(
+          p,
+          result.headshot ? 200 : 100,
+          aim.x,
+          aim.y,
+          !!result.headshot,
+        );
         if (e.kind === "boss") this.audio.bossHit();
         else this.audio.hit();
 
@@ -626,7 +747,10 @@ export class Game {
           this.clearDefend();
           this.audio.kill();
           this.spawnGore(e.x, e.y - 30, true);
-          p.score += e.kind === "boss" ? 5000 : 300;
+          const killBase = e.kind === "boss" ? 5000 : 300;
+          const killPts = killBase * p.multiplier;
+          p.score += killPts;
+          this.pushFloat(e.x, e.y - 40, killPts, p.multiplier);
           if (result.headshot) this.pushMsg("HEADSHOT");
           else if (e.kind === "enemy") this.pushMsg("DOWN!");
         }
@@ -677,10 +801,14 @@ export class Game {
   }
 
   private succeedDefend(p: PlayerState) {
+    const fx = this.defend.x;
+    const fy = this.defend.y;
     this.clearDefend();
     this.audio.defendSuccess();
     this.pushMsg("BLOCKED!");
-    p.score += 400;
+    const pts = 400 * p.multiplier;
+    p.score += pts;
+    this.pushFloat(fx, fy - 30, pts, p.multiplier);
     const boss = this.entities.find((e) => e.kind === "boss" && e.alive);
     if (boss) {
       // Brief stun before next attack; also chip damage for a successful cancel
@@ -732,6 +860,7 @@ export class Game {
   private damagePlayers() {
     this.shake = 10;
     this.audio.hurt();
+    this.breakAllStreaks();
     for (const p of this.players) {
       if (!p.active || p.lives <= 0 || p.invuln > 0) continue;
       p.lives--;
@@ -763,6 +892,8 @@ export class Game {
     if (this.totalCiviliansSaved >= 6 && score >= 25000) this.endingKind = "good";
     else if (score < 12000) this.endingKind = "bad";
     else this.endingKind = "normal";
+    this.newBest = score > this.bestScoreCached;
+    if (this.newBest) this.saveBestScore(score);
     this.state = "ending";
     this.audio.win();
   }
@@ -821,6 +952,15 @@ export class Game {
 
     for (const m of this.muzzle) drawMuzzleFlash(ctx, m.x, m.y);
 
+    for (const f of this.floatScores) {
+      ctx.globalAlpha = Math.min(1, f.life / (f.max * 0.35));
+      ctx.fillStyle = f.color;
+      ctx.font = "11px 'Press Start 2P', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.globalAlpha = 1;
+    }
+
     if (this.defend.active) {
       drawDefendPrompt(
         ctx,
@@ -863,21 +1003,38 @@ export class Game {
     }
 
     if (this.branchPending) {
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(W / 2 - 220, H * 0.55, 440, 100);
+      const panelH = 28 + this.branchPending.length * 22 + 36;
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(W / 2 - 240, H * 0.52, 480, panelH);
       ctx.fillStyle = "#f2e6c9";
       ctx.font = "12px 'Press Start 2P', monospace";
       ctx.textAlign = "center";
-      ctx.fillText("ROUTE SELECT", W / 2, H * 0.55 + 28);
-      const pref = this.branchPending.find(
-        (b) => b.requireSaved != null && this.civiliansSaved >= b.requireSaved,
-      );
-      const label = (pref ?? this.branchPending[this.branchPending.length - 1]).label;
-      ctx.fillStyle = "#8fb35a";
-      ctx.fillText(`→ ${label}`, W / 2, H * 0.55 + 58);
+      ctx.fillText("ROUTE SELECT", W / 2, H * 0.52 + 24);
+      let rowY = H * 0.52 + 48;
+      for (const b of this.branchPending) {
+        const unlocked =
+          b.requireSaved == null || this.civiliansSaved >= b.requireSaved;
+        const need = b.requireSaved ?? 0;
+        if (unlocked) {
+          ctx.fillStyle = "#8fb35a";
+          ctx.fillText(`→ ${b.label}  ROUTE OPEN`, W / 2, rowY);
+        } else {
+          ctx.fillStyle = "#6a6558";
+          ctx.fillText(
+            `LOCKED ${b.label}  NEED ${need} SAVED`,
+            W / 2,
+            rowY,
+          );
+        }
+        rowY += 22;
+      }
       ctx.fillStyle = "#6a6558";
       ctx.font = "10px Orbitron, sans-serif";
-      ctx.fillText("Saving civilians unlocks the safer route", W / 2, H * 0.55 + 82);
+      ctx.fillText(
+        `Saved this segment: ${this.civiliansSaved} · auto in ${Math.ceil(this.branchTimer)}s`,
+        W / 2,
+        rowY + 8,
+      );
     }
 
     if (this.state === "continue") {
@@ -918,10 +1075,15 @@ export class Game {
     ctx.fillStyle = "#6a6558";
     ctx.font = "10px 'Press Start 2P', monospace";
     ctx.fillText(`VER ${GAME_VERSION}`, W / 2, H * 0.56);
+    if (this.bestScoreCached > 0) {
+      ctx.fillStyle = "#8fb35a";
+      ctx.font = "10px Orbitron, sans-serif";
+      ctx.fillText(`BEST ${String(this.bestScoreCached).padStart(6, "0")}`, W / 2, H * 0.595);
+    }
 
     ctx.fillStyle = "rgba(196,60,43,0.9)";
     ctx.font = "11px Orbitron, sans-serif";
-    ctx.fillText("MISSION: ENTER THE HOUSE · KILL THE MAGICIAN", W / 2, H * 0.62);
+    ctx.fillText("MISSION: ENTER THE HOUSE · KILL THE MAGICIAN", W / 2, H * 0.635);
 
     const blink = Math.floor(this.time * 2) % 2 === 0;
     if (blink) {
@@ -1017,22 +1179,47 @@ export class Game {
       bad: "You escaped... yet the mansion still hungers.",
     };
     ctx.fillStyle = this.endingKind === "good" ? "#8fb35a" : this.endingKind === "bad" ? "#c43c2b" : "#f2e6c9";
-    ctx.font = "20px 'Press Start 2P', monospace";
+    ctx.font = "18px 'Press Start 2P', monospace";
     ctx.textAlign = "center";
-    ctx.fillText(titles[this.endingKind], W / 2, H * 0.32);
+    ctx.fillText(titles[this.endingKind], W / 2, H * 0.2);
     ctx.fillStyle = "#f2e6c9";
-    ctx.font = "14px Orbitron, sans-serif";
-    ctx.fillText(lines[this.endingKind], W / 2, H * 0.44);
+    ctx.font = "12px Orbitron, sans-serif";
+    ctx.fillText(lines[this.endingKind], W / 2, H * 0.28);
     const score = this.players.reduce((s, p) => s + (p.active ? p.score : 0), 0);
     ctx.font = "12px 'Press Start 2P', monospace";
-    ctx.fillText(`FINAL SCORE ${score}`, W / 2, H * 0.56);
-    ctx.fillText(`CIVILIANS SAVED ${this.totalCiviliansSaved}`, W / 2, H * 0.64);
+    ctx.fillText(`FINAL SCORE ${score}`, W / 2, H * 0.38);
+    if (this.newBest) {
+      ctx.fillStyle = "#ffd36a";
+      ctx.font = "11px 'Press Start 2P', monospace";
+      ctx.fillText("NEW BEST", W / 2, H * 0.435);
+    }
+    ctx.fillStyle = "#f2e6c9";
+    ctx.font = "11px Orbitron, sans-serif";
+    const accuracy =
+      this.shotsFired > 0
+        ? Math.round((this.shotsHit / this.shotsFired) * 100)
+        : 0;
+    ctx.fillText(
+      `ACCURACY ${accuracy}%  ·  HEADSHOTS ${this.headshots}  ·  BEST STREAK ${this.bestStreak}`,
+      W / 2,
+      H * 0.5,
+    );
+    ctx.fillText(`CIVILIANS SAVED ${this.totalCiviliansSaved}`, W / 2, H * 0.56);
+    const routes =
+      this.routesTaken.length > 0 ? this.routesTaken.join(" → ") : "NONE";
+    ctx.fillStyle = "#8fb35a";
+    ctx.font = "10px Orbitron, sans-serif";
+    ctx.fillText(`ROUTES: ${routes}`, W / 2, H * 0.62);
+    if (this.bestScoreCached > 0 && !this.newBest) {
+      ctx.fillStyle = "#6a6558";
+      ctx.fillText(`BEST ${this.bestScoreCached}`, W / 2, H * 0.68);
+    }
     ctx.fillStyle = "#6a6558";
     ctx.font = "12px Orbitron, sans-serif";
     ctx.fillText(
       this.input.touch ? "TAP SCREEN — TITLE" : "PRESS START — TITLE",
       W / 2,
-      H * 0.8,
+      H * 0.82,
     );
   }
 }

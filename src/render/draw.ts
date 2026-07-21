@@ -668,7 +668,18 @@ export function drawHudCanvas(
   ctx.fillText(chapterTitle, 16, 24);
   ctx.textAlign = "center";
   const totalScore = players.reduce((s, p) => s + (p.active ? p.score : 0), 0);
+  const bestMult = Math.max(
+    1,
+    ...players.filter((p) => p.active).map((p) => p.multiplier),
+  );
   ctx.fillText(`SCORE ${String(totalScore).padStart(6, "0")}`, W / 2, 24);
+  if (bestMult > 1) {
+    ctx.fillStyle = bestMult >= 5 ? "#ffd36a" : "#8fb35a";
+    ctx.font = "10px 'Press Start 2P', monospace";
+    ctx.fillText(`x${bestMult}`, W / 2 + 118, 24);
+  }
+  ctx.fillStyle = "#f2e6c9";
+  ctx.font = "12px 'Press Start 2P', monospace";
   ctx.textAlign = "right";
   ctx.fillText(`SAVED ${civiliansSaved}/${civiliansTotal}`, W - 16, 24);
 
@@ -686,7 +697,8 @@ export function drawHudCanvas(
     ctx.fillStyle = p.color;
     ctx.font = "10px 'Press Start 2P', monospace";
     ctx.textAlign = "left";
-    ctx.fillText(left ? "1P" : "2P", bx + 10, H - 50);
+    const multLabel = p.multiplier > 1 ? ` x${p.multiplier}` : "";
+    ctx.fillText(`${left ? "1P" : "2P"}${multLabel}`, bx + 10, H - 50);
 
     // lives as flame icons
     for (let L = 0; L < p.maxLives; L++) {
