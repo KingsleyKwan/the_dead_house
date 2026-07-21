@@ -23,7 +23,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
-    <!-- Critical CSS so the page is never a blank white shell if assets delay -->
     <style>
       html, body {
         margin: 0;
@@ -52,19 +51,37 @@
       #hint-mobile, #rotate-hint { display: none; }
       #mobile-ui { display: none; }
     </style>
+    <script>
+      // Instant redirect to the playable build on GitHub Pages (repo root is Vite source only)
+      (function () {
+        var host = location.hostname;
+        var path = location.pathname || "";
+        var isDev = host === "localhost" || host === "127.0.0.1";
+        var playUrl = "https://kingsleykwan.github.io/the_dead_house/docs/";
+        if (isDev) return;
+        // Already inside /docs/ — let the built page load
+        if (path.indexOf("/docs") !== -1) return;
+        // On github.io project site root → go to built game
+        if (host === "kingsleykwan.github.io") {
+          location.replace(playUrl);
+          return;
+        }
+        // file:// or other hosts → play online
+        if (location.protocol === "file:" || host === "github.com") {
+          location.replace(playUrl);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="boot-error" role="alert">
       <strong>THE DEAD HOUSE</strong>
-      <span style="color:#f2e6c9">Play instantly on phone or desktop — no install needed:</span>
+      <span style="color:#f2e6c9">Play on phone or desktop — no install:</span>
       <a
         id="play-online"
-        href="https://kingsleykwan.github.io/the_dead_house/"
+        href="https://kingsleykwan.github.io/the_dead_house/docs/"
         style="display:inline-block;margin-top:8px;padding:14px 22px;background:#c43c2b;color:#fff;text-decoration:none;font-family:'Press Start 2P',monospace;font-size:12px;border-radius:8px;"
       >PLAY ONLINE</a>
-      <span style="color:#6a6558;font-size:12px;margin-top:12px;">
-        Bookmark that link. Opening this file from GitHub source or disk will not run the game.
-      </span>
     </div>
     <div id="app">
       <div id="cabinet">
@@ -86,19 +103,11 @@
     </div>
     <script type="module" src="/src/main.ts"></script>
     <script>
-      // Wrong host (file://, github.com source view, Pages root): send people to the playable site
       setTimeout(function () {
         if (window.__DEAD_HOUSE_BOOTED__) return;
-        var host = location.hostname;
-        var isDev = host === "localhost" || host === "127.0.0.1";
-        var playUrl = "https://kingsleykwan.github.io/the_dead_house/";
-        if (!isDev && host !== "kingsleykwan.github.io") {
-          location.replace(playUrl);
-          return;
-        }
         var el = document.getElementById("boot-error");
         if (el) el.classList.add("show");
-      }, 1500);
+      }, 2000);
     </script>
   </body>
 </html>

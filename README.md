@@ -1,18 +1,16 @@
 # THE DEAD HOUSE
 
-Browser arcade rail shooter — a fan tribute by **sley**.
+Browser arcade rail shooter by **sley**.
 
-## Play (no install)
+## Play — no install
 
-**Open this link on phone or desktop:**
+Open this on your phone or computer:
 
-### https://kingsleykwan.github.io/the_dead_house/
+# https://kingsleykwan.github.io/the_dead_house/docs/
 
-That is all you need. No npm, no download.
+Tap / click the dark game screen to start. That is all.
 
----
-
-## Develop locally (optional)
+## Optional: local development
 
 ```bash
 npm install
@@ -20,10 +18,8 @@ npm run dev
 ```
 
 ```bash
-npm run build   # rebuilds the docs/ site for GitHub Pages
+npm run build   # refreshes the docs/ site
 ```
-
-GitHub Pages must deploy from branch `main` folder `/docs`.
 
 ## Controls
 
@@ -36,4 +32,4 @@ GitHub Pages must deploy from branch `main` folder `/docs`.
 
 ## Disclaimer
 
-Original art & audio. Fan tribute inspired by classic light-gun arcade shooters. Not affiliated with SEGA.
+Original art & audio. Fan tribute. Not affiliated with SEGA.
