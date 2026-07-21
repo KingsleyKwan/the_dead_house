@@ -14,6 +14,7 @@ import {
   CONTINUE_TIME,
 } from "./types";
 import { CHAPTERS } from "../data/chapters";
+import { GAME_VERSION } from "./version";
 import {
   makeEnemy,
   makeCivilian,
@@ -812,7 +813,7 @@ export class Game {
 
     ctx.fillStyle = "#6a6558";
     ctx.font = "10px 'Press Start 2P', monospace";
-    ctx.fillText("VER 1.0.0", W / 2, H * 0.56);
+    ctx.fillText(`VER ${GAME_VERSION}`, W / 2, H * 0.56);
 
     const blink = Math.floor(this.time * 2) % 2 === 0;
     if (blink) {
