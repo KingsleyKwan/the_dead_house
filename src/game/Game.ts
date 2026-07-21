@@ -30,7 +30,19 @@ import {
   drawCrosshair,
   drawHudCanvas,
   drawMuzzleFlash,
+  drawDefendPrompt,
 } from "../render/draw";
+
+interface DefendPrompt {
+  active: boolean;
+  x: number;
+  y: number;
+  r: number;
+  timeLeft: number;
+  timeMax: number;
+  hitsLeft: number;
+  hitsNeed: number;
+}
 
 export class Game {
   private ctx: CanvasRenderingContext2D;
@@ -59,6 +71,16 @@ export class Game {
   endingKind: "good" | "normal" | "bad" = "normal";
   routesTaken: string[] = [];
   private pendingAfterClear: "nextChapter" | "ending" | null = null;
+  private defend: DefendPrompt = {
+    active: false,
+    x: W / 2,
+    y: H * 0.45,
+    r: 42,
+    timeLeft: 0,
+    timeMax: 1.4,
+    hitsLeft: 1,
+    hitsNeed: 1,
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -132,6 +154,7 @@ export class Game {
     this.branchPending = null;
     this.bossDef = null;
     this.pendingAfterClear = null;
+    this.clearDefend();
     this.state = "chapterIntro";
     this.introTimer = 2.4;
     this.players.forEach((p) => {
@@ -375,23 +398,22 @@ export class Game {
         e.x += e.vx * dt;
         if (e.x < 180 || e.x > W - 180) e.vx *= -1;
         e.y = H * 0.52 + Math.sin(this.time * 1.5) * 18;
-        e.attackTimer -= dt;
-        if (e.attackTimer <= 0) {
-          this.damagePlayers();
-          e.attackTimer = Math.max(1.1, e.attackDelay - e.phase! * 0.15);
-          // spawn adds
-          if (Math.random() < 0.5) {
-            this.entities.push(
-              makeEnemy(
-                Math.random() < 0.5 ? "runner" : "walker",
-                120 + Math.random() * (W - 240),
-                H * 0.5,
-                0.45,
-              ),
-            );
+        e.phase = e.hp < e.maxHp * 0.4 ? 2 : 1;
+
+        // While defend prompt is up, pause the next wind-up and track the mark
+        if (this.defend.active) {
+          this.defend.x = e.x + Math.sin(this.time * 3) * 30;
+          this.defend.y = e.y - 40 + Math.cos(this.time * 2.5) * 18;
+          this.defend.timeLeft -= dt;
+          if (this.defend.timeLeft <= 0) {
+            this.failDefend(e);
+          }
+        } else {
+          e.attackTimer -= dt;
+          if (e.attackTimer <= 0) {
+            this.startDefend(e);
           }
         }
-        e.phase = e.hp < e.maxHp * 0.4 ? 2 : 1;
       }
     }
 
@@ -460,6 +482,28 @@ export class Game {
 
   private resolveShot(p: PlayerState) {
     const aim = p.crosshair;
+
+    // Boss defend / cancel mark takes priority
+    if (this.defend.active) {
+      const dx = aim.x - this.defend.x;
+      const dy = aim.y - this.defend.y;
+      if (dx * dx + dy * dy <= this.defend.r * this.defend.r) {
+        this.defend.hitsLeft--;
+        this.audio.hit();
+        p.score += 150;
+        if (this.defend.hitsLeft <= 0) {
+          this.succeedDefend(p);
+        } else {
+          // Nudge mark for next required hit
+          this.defend.x += (Math.random() - 0.5) * 80;
+          this.defend.y += (Math.random() - 0.5) * 40;
+          this.defend.x = Math.max(80, Math.min(W - 80, this.defend.x));
+          this.defend.y = Math.max(100, Math.min(H - 120, this.defend.y));
+        }
+        return;
+      }
+    }
+
     // sort by z desc (front first)
     const targets = [...this.entities]
       .filter((e) => e.alive || (e.kind === "breakable" && !e.broken))
@@ -503,6 +547,7 @@ export class Game {
       }
 
       if (e.kind === "enemy" || e.kind === "boss") {
+        // While defending, body shots still hurt the boss a little if you miss the mark
         const dmg = result.headshot ? 2.4 : result.points;
         e.hp -= dmg;
         e.hitFlash = 0.12;
@@ -512,12 +557,67 @@ export class Game {
 
         if (e.hp <= 0) {
           e.alive = false;
+          this.clearDefend();
           this.audio.kill();
           p.score += e.kind === "boss" ? 5000 : 300;
           if (result.headshot) this.pushMsg("HEADSHOT");
         }
         return;
       }
+    }
+  }
+
+  private clearDefend() {
+    this.defend.active = false;
+    this.defend.timeLeft = 0;
+  }
+
+  private startDefend(boss: Entity) {
+    const phase = boss.phase ?? 1;
+    const hitsNeed = phase >= 2 ? 2 : 1;
+    const window = phase >= 2 ? 1.15 : 1.55;
+    this.defend = {
+      active: true,
+      x: boss.x + (Math.random() - 0.5) * 60,
+      y: boss.y - 50,
+      r: phase >= 2 ? 36 : 44,
+      timeLeft: window,
+      timeMax: window,
+      hitsLeft: hitsNeed,
+      hitsNeed,
+    };
+    this.audio.defendWarn();
+    this.pushMsg("DEFEND!");
+  }
+
+  private succeedDefend(p: PlayerState) {
+    this.clearDefend();
+    this.audio.defendSuccess();
+    this.pushMsg("BLOCKED!");
+    p.score += 400;
+    const boss = this.entities.find((e) => e.kind === "boss" && e.alive);
+    if (boss) {
+      // Brief stun before next attack; also chip damage for a successful cancel
+      boss.attackTimer = Math.max(1.4, boss.attackDelay - (boss.phase ?? 1) * 0.1);
+      boss.hp = Math.max(1, boss.hp - 2);
+      boss.hitFlash = 0.2;
+    }
+  }
+
+  private failDefend(boss: Entity) {
+    this.clearDefend();
+    this.damagePlayers();
+    this.pushMsg("HIT!");
+    boss.attackTimer = Math.max(1.1, boss.attackDelay - (boss.phase ?? 1) * 0.15);
+    if (Math.random() < 0.45) {
+      this.entities.push(
+        makeEnemy(
+          Math.random() < 0.5 ? "runner" : "walker",
+          120 + Math.random() * (W - 240),
+          H * 0.5,
+          0.45,
+        ),
+      );
     }
   }
 
@@ -555,6 +655,7 @@ export class Game {
 
   private onBossCleared() {
     if (this.state !== "boss") return;
+    this.clearDefend();
     this.pushMsg("STAGE CLEAR");
     this.players.forEach((p) => {
       if (p.active) {
@@ -614,6 +715,20 @@ export class Game {
     for (const e of sorted) drawEntity(ctx, e, this.time);
 
     for (const m of this.muzzle) drawMuzzleFlash(ctx, m.x, m.y);
+
+    if (this.defend.active) {
+      drawDefendPrompt(
+        ctx,
+        this.defend.x,
+        this.defend.y,
+        this.defend.r,
+        this.defend.timeLeft,
+        this.defend.timeMax,
+        this.defend.hitsLeft,
+        this.defend.hitsNeed,
+        this.time,
+      );
+    }
 
     const needReload = this.players.some((p) => p.active && p.ammo <= 0);
     const ch = this.chapter();

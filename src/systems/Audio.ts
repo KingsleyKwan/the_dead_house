@@ -65,6 +65,16 @@ export class AudioBus {
     this.tone(70, 0.12, "sawtooth", 0.09, -20);
   }
 
+  defendWarn() {
+    this.tone(520, 0.08, "square", 0.05);
+    this.tone(380, 0.1, "square", 0.04);
+  }
+
+  defendSuccess() {
+    this.tone(440, 0.08, "triangle", 0.06);
+    this.tone(660, 0.12, "triangle", 0.05, 40);
+  }
+
   continueBeep() {
     this.tone(440, 0.08, "square", 0.05);
   }

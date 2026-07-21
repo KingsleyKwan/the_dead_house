@@ -535,3 +535,71 @@ export function drawMuzzleFlash(ctx: CanvasRenderingContext2D, x: number, y: num
   ctx.fill();
   ctx.restore();
 }
+
+/** Timed cancel / defend target when a boss winds up an attack. */
+export function drawDefendPrompt(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  timeLeft: number,
+  timeMax: number,
+  hitsLeft: number,
+  hitsNeed: number,
+  time: number,
+) {
+  const pct = Math.max(0, timeLeft / timeMax);
+  const pulse = 1 + Math.sin(time * 14) * 0.08;
+  const danger = pct < 0.35;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Outer warning ring
+  ctx.strokeStyle = danger ? "rgba(255,59,47,0.85)" : "rgba(242,230,201,0.7)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.35 * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Timer arc
+  ctx.strokeStyle = danger ? "#ff3b2f" : "#8fb35a";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+  ctx.stroke();
+
+  // Target disc
+  ctx.fillStyle = danger ? "rgba(196,60,43,0.55)" : "rgba(143,179,90,0.45)";
+  ctx.beginPath();
+  ctx.arc(0, 0, r * pulse, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f2e6c9";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Crosshair inside
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.55, 0);
+  ctx.lineTo(r * 0.55, 0);
+  ctx.moveTo(0, -r * 0.55);
+  ctx.lineTo(0, r * 0.55);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.28, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+
+  ctx.fillStyle = danger ? "#ff3b2f" : "#f2e6c9";
+  ctx.font = "14px 'Press Start 2P', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("DEFEND!", x, y - r - 28);
+  ctx.font = "10px Orbitron, sans-serif";
+  ctx.fillStyle = "#f2e6c9";
+  ctx.fillText(
+    hitsNeed > 1 ? `${hitsLeft} HIT${hitsLeft > 1 ? "S" : ""} LEFT` : "SHOOT THE MARK",
+    x,
+    y + r + 26,
+  );
+}
