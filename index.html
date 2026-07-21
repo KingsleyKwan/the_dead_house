@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#070709" />
+    <title>THE DEAD HOUSE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="cabinet">
+        <canvas id="game" width="960" height="540"></canvas>
+        <div id="scanlines" aria-hidden="true"></div>
+        <div id="hud"></div>
+        <div id="overlay"></div>
+        <div id="mobile-ui" class="hidden" aria-hidden="true">
+          <button type="button" id="btn-reload" class="mob-btn mob-reload">RELOAD</button>
+        </div>
+      </div>
+      <p id="hint" class="hint-desktop">
+        Shoot: Click · Reload: R or click outside · Start: Space · 2P Join: 2
+      </p>
+      <p id="hint-mobile" class="hint-mobile">
+        Tap to shoot · RELOAD button · Tap screen to start · Rotate to landscape
+      </p>
+      <p id="rotate-hint" class="rotate-hint">Rotate your device to landscape for the best experience</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
