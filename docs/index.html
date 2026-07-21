@@ -52,14 +52,21 @@
       #hint-mobile, #rotate-hint { display: none; }
       #mobile-ui { display: none; }
     </style>
-    <script type="module" crossorigin src="./assets/index-CHN7z8V7.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-C-_Kof3f.css">
+    <script type="module" crossorigin src="/the_dead_house/assets/index-CHN7z8V7.js"></script>
+    <link rel="stylesheet" crossorigin href="/the_dead_house/assets/index-C-_Kof3f.css">
   </head>
   <body>
     <div id="boot-error" role="alert">
-      <strong>THE DEAD HOUSE failed to load.</strong>
-      <span>Open via the local server or GitHub Pages — do not open index.html as a file.</span>
-      <span>Run: <code>npm install && npm run dev</code></span>
+      <strong>THE DEAD HOUSE</strong>
+      <span style="color:#f2e6c9">Play instantly on phone or desktop — no install needed:</span>
+      <a
+        id="play-online"
+        href="https://kingsleykwan.github.io/the_dead_house/"
+        style="display:inline-block;margin-top:8px;padding:14px 22px;background:#c43c2b;color:#fff;text-decoration:none;font-family:'Press Start 2P',monospace;font-size:12px;border-radius:8px;"
+      >PLAY ONLINE</a>
+      <span style="color:#6a6558;font-size:12px;margin-top:12px;">
+        Bookmark that link. Opening this file from GitHub source or disk will not run the game.
+      </span>
     </div>
     <div id="app">
       <div id="cabinet">
@@ -80,13 +87,19 @@
       <p id="rotate-hint" class="rotate-hint">Rotate your device to landscape for the best experience</p>
     </div>
     <script>
-      // If the module never boots (wrong host / blocked JS), show help after a moment
+      // Wrong host (file://, github.com source view, Pages root): send people to the playable site
       setTimeout(function () {
-        if (!window.__DEAD_HOUSE_BOOTED__) {
-          var el = document.getElementById("boot-error");
-          if (el) el.classList.add("show");
+        if (window.__DEAD_HOUSE_BOOTED__) return;
+        var host = location.hostname;
+        var isDev = host === "localhost" || host === "127.0.0.1";
+        var playUrl = "https://kingsleykwan.github.io/the_dead_house/";
+        if (!isDev && host !== "kingsleykwan.github.io") {
+          location.replace(playUrl);
+          return;
         }
-      }, 2500);
+        var el = document.getElementById("boot-error");
+        if (el) el.classList.add("show");
+      }, 1500);
     </script>
   </body>
 </html>

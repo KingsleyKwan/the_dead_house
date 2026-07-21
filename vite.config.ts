@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  // Relative paths so dist/ and GitHub Pages both work
-  base: "./",
+export default defineConfig(({ mode }) => ({
+  // Production uses GitHub Pages project path; local dev stays at /
+  base: mode === "production" ? "/the_dead_house/" : "/",
   build: {
     outDir: "docs",
     emptyOutDir: true,
   },
-});
+}));
