@@ -66,6 +66,11 @@ export interface Entity {
   rescued?: boolean;
   broken?: boolean;
   phase?: number;
+  /** Hit reaction: knockback / lean */
+  recoil?: number;
+  recoilDir?: number;
+  /** Death crumple animation 0→1 */
+  dying?: number;
 }
 
 export interface SpawnEvent {

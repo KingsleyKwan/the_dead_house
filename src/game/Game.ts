@@ -82,6 +82,18 @@ export class Game {
     hitsLeft: 1,
     hitsNeed: 1,
   };
+  railProgress = 0;
+  particles: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    max: number;
+    color: string;
+    size: number;
+  }[] = [];
+  private wasExploring = true;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -156,6 +168,9 @@ export class Game {
     this.bossDef = null;
     this.pendingAfterClear = null;
     this.clearDefend();
+    this.railProgress = 0;
+    this.particles = [];
+    this.wasExploring = true;
     this.state = "chapterIntro";
     this.introTimer = 2.4;
     this.players.forEach((p) => {
@@ -303,10 +318,30 @@ export class Game {
   }
 
   private updateGameplay(dt: number) {
-    this.segmentTime += dt;
     const seg = this.segment();
+    const threats = this.entities.some(
+      (e) =>
+        ((e.kind === "enemy" || e.kind === "boss") && e.alive) ||
+        (e.kind === "enemy" && (e.dying ?? 0) > 0),
+    ) || this.defend.active;
+    const exploring = this.state === "playing" && !threats;
 
-    // spawn events
+    // Explore → stop to fight → explore again
+    if (this.state === "playing") {
+      if (exploring) {
+        this.segmentTime += dt;
+        this.railProgress += dt;
+        if (!this.wasExploring) this.pushMsg("MOVE OUT");
+      } else if (this.wasExploring && threats) {
+        this.pushMsg("UNDEAD AHEAD!");
+      }
+      this.wasExploring = exploring;
+    } else {
+      this.segmentTime += dt;
+      this.wasExploring = false;
+    }
+
+    // spawn events (only when timeline advances)
     while (
       this.spawnCursor < seg.spawns.length &&
       seg.spawns[this.spawnCursor].at <= this.segmentTime
@@ -338,30 +373,48 @@ export class Game {
       }
     }
 
+    // particles
+    this.particles = this.particles
+      .map((pt) => ({
+        ...pt,
+        x: pt.x + pt.vx * dt,
+        y: pt.y + pt.vy * dt,
+        vy: pt.vy + 280 * dt,
+        life: pt.life - dt,
+      }))
+      .filter((pt) => pt.life > 0);
+
     // entities
     for (const e of this.entities) {
+      if (e.kind === "enemy" && (e.dying ?? 0) > 0) {
+        e.dying = (e.dying ?? 0) + dt * 2.2;
+        e.recoil = Math.max(0, (e.recoil ?? 0) - dt);
+        continue;
+      }
       if (!e.alive && e.kind !== "breakable") continue;
       e.age += dt;
       e.hitFlash = Math.max(0, e.hitFlash - dt);
+      e.recoil = Math.max(0, (e.recoil ?? 0) - dt);
 
       if (e.kind === "enemy" && e.alive) {
+        const staggered = (e.recoil ?? 0) > 0;
         const speed =
-          e.variant === "runner" ? 55 : e.variant === "crawler" ? 35 : 28;
+          (e.variant === "runner" ? 55 : e.variant === "crawler" ? 35 : 28) *
+          (staggered ? 0.25 : 1);
         e.z = Math.min(1, e.z + (speed * dt) / 400);
         e.y = lerp(H * 0.42, H * 0.72, e.z);
-        // slight drift toward center
         e.x += (W / 2 - e.x) * dt * 0.15;
-        e.attackTimer -= dt;
+        if (!staggered) e.attackTimer -= dt;
         if (e.attackTimer <= 0 && e.z > 0.85) {
           this.damagePlayers();
           e.attackTimer = e.attackDelay;
           e.alive = false;
+          e.dying = 0.01;
         }
       }
 
       if (e.kind === "civilian" && e.alive && !e.rescued) {
         e.attackTimer -= dt;
-        // auto-rescue if survives long enough and nearby enemies cleared? arcade: shoot the threat. Here: survive timer = rescued
         const threat = this.entities.some(
           (x) =>
             x.kind === "enemy" &&
@@ -379,7 +432,6 @@ export class Game {
           this.players.forEach((p) => {
             if (p.active) p.score += 500;
           });
-          // chance of life item
           if (Math.random() < 0.45) {
             this.entities.push(makeItem("life", e.x, e.y - 40, 0.7));
           }
@@ -401,7 +453,6 @@ export class Game {
         e.y = H * 0.52 + Math.sin(this.time * 1.5) * 18;
         e.phase = e.hp < e.maxHp * 0.4 ? 2 : 1;
 
-        // While defend prompt is up, pause the next wind-up and track the mark
         if (this.defend.active) {
           this.defend.x = e.x + Math.sin(this.time * 3) * 30;
           this.defend.y = e.y - 40 + Math.cos(this.time * 2.5) * 18;
@@ -419,7 +470,11 @@ export class Game {
     }
 
     this.entities = this.entities.filter(
-      (e) => e.alive || e.kind === "breakable" || (e.kind === "civilian" && e.rescued && e.age < 3),
+      (e) =>
+        e.alive ||
+        e.kind === "breakable" ||
+        (e.kind === "civilian" && e.rescued && e.age < 3) ||
+        (e.kind === "enemy" && (e.dying ?? 0) > 0 && (e.dying ?? 0) < 1),
     );
 
     // segment end / branch
@@ -468,14 +523,15 @@ export class Game {
 
   private spawn(s: (typeof CHAPTERS)[0]["segments"][string]["spawns"][0]) {
     const y = s.y ?? H * 0.48;
-    const z = s.z ?? 0.35 + Math.random() * 0.15;
+    // Appear down the corridor, then rush the player
+    const z = s.z ?? 0.22 + Math.random() * 0.12;
     if (s.kind === "enemy") {
       this.entities.push(
         makeEnemy(s.variant ?? "walker", s.x, y, z, s.hp, s.attackDelay),
       );
     } else if (s.kind === "civilian") {
       this.civiliansSeen++;
-      this.entities.push(makeCivilian(s.x, y, z));
+      this.entities.push(makeCivilian(s.x, y, Math.max(0.4, z)));
     } else if (s.kind === "breakable") {
       this.entities.push(makeBreakable(s.x, y, z));
     }
@@ -548,23 +604,52 @@ export class Game {
       }
 
       if (e.kind === "enemy" || e.kind === "boss") {
-        // While defending, body shots still hurt the boss a little if you miss the mark
         const dmg = result.headshot ? 2.4 : result.points;
         e.hp -= dmg;
-        e.hitFlash = 0.12;
+        e.hitFlash = 0.18;
+        // Hit reaction: flinch away from shot
+        const dir = aim.x < e.x ? 1 : -1;
+        e.recoil = 0.28;
+        e.recoilDir = dir;
+        e.x += dir * (result.headshot ? 14 : 8);
+        e.z = Math.max(0.15, e.z - (result.headshot ? 0.04 : 0.02));
+        this.spawnGore(aim.x, aim.y, result.headshot);
         p.score += result.headshot ? 200 : 100;
         if (e.kind === "boss") this.audio.bossHit();
         else this.audio.hit();
 
         if (e.hp <= 0) {
           e.alive = false;
+          e.dying = 0.01;
+          e.recoil = 0.4;
+          e.recoilDir = dir;
           this.clearDefend();
           this.audio.kill();
+          this.spawnGore(e.x, e.y - 30, true);
           p.score += e.kind === "boss" ? 5000 : 300;
           if (result.headshot) this.pushMsg("HEADSHOT");
+          else if (e.kind === "enemy") this.pushMsg("DOWN!");
         }
         return;
       }
+    }
+  }
+
+  private spawnGore(x: number, y: number, heavy: boolean) {
+    const n = heavy ? 14 : 7;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 60 + Math.random() * (heavy ? 220 : 140);
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 40,
+        life: 0.25 + Math.random() * 0.35,
+        max: 0.6,
+        color: Math.random() > 0.3 ? "#8a1a14" : "#c43c2b",
+        size: 2 + Math.random() * (heavy ? 4 : 2.5),
+      });
     }
   }
 
@@ -704,7 +789,16 @@ export class Game {
         ? this.chapter().segments[this.chapter().startSegment].theme
         : this.segment().theme;
 
-    drawBackground(ctx, theme, this.time, this.shake);
+    drawBackground(
+      ctx,
+      theme,
+      this.time,
+      this.shake,
+      this.railProgress,
+      this.state === "playing" &&
+        !this.entities.some((e) => e.kind === "enemy" && e.alive) &&
+        !this.defend.active,
+    );
 
     if (this.state === "chapterIntro") {
       this.renderChapterIntro();
@@ -714,6 +808,16 @@ export class Game {
     // depth sort
     const sorted = [...this.entities].sort((a, b) => a.z - b.z);
     for (const e of sorted) drawEntity(ctx, e, this.time);
+
+    // gore / impact particles
+    for (const pt of this.particles) {
+      ctx.globalAlpha = Math.max(0, pt.life / pt.max);
+      ctx.fillStyle = pt.color;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 
     for (const m of this.muzzle) drawMuzzleFlash(ctx, m.x, m.y);
 
@@ -815,19 +919,23 @@ export class Game {
     ctx.font = "10px 'Press Start 2P', monospace";
     ctx.fillText(`VER ${GAME_VERSION}`, W / 2, H * 0.56);
 
+    ctx.fillStyle = "rgba(196,60,43,0.9)";
+    ctx.font = "11px Orbitron, sans-serif";
+    ctx.fillText("MISSION: ENTER THE HOUSE · KILL THE MAGICIAN", W / 2, H * 0.62);
+
     const blink = Math.floor(this.time * 2) % 2 === 0;
     if (blink) {
       ctx.fillStyle = "#8fb35a";
       ctx.font = "14px 'Press Start 2P', monospace";
-      ctx.fillText(this.input.touch ? "TAP TO START" : "PRESS START", W / 2, H * 0.64);
+      ctx.fillText(this.input.touch ? "TAP TO START" : "PRESS START", W / 2, H * 0.72);
     }
 
     ctx.fillStyle = "#6a6558";
     ctx.font = "10px Orbitron, sans-serif";
     ctx.fillText(
       this.input.touch
-        ? "Tap enemies to shoot · Use RELOAD when empty · Landscape recommended"
-        : "Fan tribute inspired by classic light-gun arcade shooters. Original art & audio.",
+        ? "Explore the halls · Stop and fire · Survive to the final boss"
+        : "Explore · Clear undead · Reach the strongest foe in the dead house",
       W / 2,
       H * 0.88,
     );
@@ -878,10 +986,19 @@ export class Game {
     ctx.fillStyle = "#c43c2b";
     ctx.font = "16px 'Press Start 2P', monospace";
     ctx.textAlign = "center";
-    ctx.fillText(ch.title, W / 2, H * 0.4);
+    ctx.fillText(ch.title, W / 2, H * 0.38);
     ctx.fillStyle = "#f2e6c9";
     ctx.font = "28px 'Press Start 2P', monospace";
-    ctx.fillText(ch.subtitle, W / 2, H * 0.52);
+    ctx.fillText(ch.subtitle, W / 2, H * 0.5);
+    ctx.fillStyle = "#6a6558";
+    ctx.font = "12px Orbitron, sans-serif";
+    const tips = [
+      "Approach the mansion. Clear every undead in your path.",
+      "Push through the halls. The Hanged Man waits above.",
+      "Descend into the labs. Truth lies deeper still.",
+      "The Magician — strongest in the Dead House. End this.",
+    ];
+    ctx.fillText(tips[ch.index - 1] ?? "", W / 2, H * 0.62);
   }
 
   private renderEnding() {

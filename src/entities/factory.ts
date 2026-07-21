@@ -52,6 +52,9 @@ export function makeEnemy(
     hitFlash: 0,
     age: 0,
     zones: zonesForEnemy(variant, scale),
+    recoil: 0,
+    recoilDir: 0,
+    dying: 0,
   };
 }
 

@@ -5,183 +5,362 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+/** Immersive corridor / mansion exploration backdrop. `rail` scrolls the path forward. */
 export function drawBackground(
   ctx: CanvasRenderingContext2D,
   theme: SceneTheme,
   t: number,
   shake = 0,
+  rail = 0,
+  exploring = false,
 ) {
   const sx = (Math.random() - 0.5) * shake;
   const sy = (Math.random() - 0.5) * shake;
   ctx.save();
   ctx.translate(sx, sy);
 
-  const palettes: Record<SceneTheme, [string, string, string]> = {
-    drive: ["#1a2218", "#2d3a28", "#0d100c"],
-    courtyard: ["#1c241c", "#334033", "#0e120e"],
-    mansion: ["#1a1418", "#2a2228", "#0c0a0c"],
-    lab: ["#121820", "#1e2a34", "#080c10"],
-    cave: ["#141210", "#24201c", "#0a0806"],
-    sanctum: ["#180c10", "#2a1418", "#0c0608"],
-  };
-  const [c0, c1, c2] = palettes[theme];
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, c0);
-  g.addColorStop(0.55, c1);
-  g.addColorStop(1, c2);
-  ctx.fillStyle = g;
+  // Sky / far atmosphere
+  const sky = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+  if (theme === "drive" || theme === "courtyard") {
+    sky.addColorStop(0, "#0c1210");
+    sky.addColorStop(1, "#1a2820");
+  } else if (theme === "lab") {
+    sky.addColorStop(0, "#080c12");
+    sky.addColorStop(1, "#121c28");
+  } else if (theme === "cave") {
+    sky.addColorStop(0, "#080604");
+    sky.addColorStop(1, "#14100c");
+  } else if (theme === "sanctum") {
+    sky.addColorStop(0, "#100608");
+    sky.addColorStop(1, "#1c0c12");
+  } else {
+    sky.addColorStop(0, "#0a080c");
+    sky.addColorStop(1, "#18141a");
+  }
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, H);
 
-  // parallax floor
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  drawCorridorPerspective(ctx, theme, t, rail, exploring);
+
+  if (theme === "drive") {
+    drawApproachGate(ctx, rail, t);
+  } else if (theme === "courtyard") {
+    drawCourtyardFacade(ctx, rail, t);
+  } else if (theme === "mansion") {
+    drawGrandHall(ctx, rail, t);
+  } else if (theme === "lab") {
+    drawLabCorridor(ctx, rail, t);
+  } else if (theme === "cave") {
+    drawCaveTunnel(ctx, rail, t);
+  } else {
+    drawSanctumChamber(ctx, rail, t);
+  }
+
+  // Ground fog / dust
+  const fog = ctx.createLinearGradient(0, H * 0.5, 0, H);
+  fog.addColorStop(0, "rgba(30,40,35,0)");
+  fog.addColorStop(0.4, "rgba(30,40,35,0.2)");
+  fog.addColorStop(1, "rgba(10,12,10,0.55)");
+  ctx.fillStyle = fog;
+  ctx.fillRect(0, H * 0.48, W, H * 0.52);
+
+  // Vignette
+  const vig = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.15, W / 2, H * 0.5, H * 0.75);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // Exploring hint ribbon
+  if (exploring) {
+    ctx.fillStyle = "rgba(143,179,90,0.15)";
+    ctx.fillRect(0, H * 0.78, W, 28);
+    ctx.fillStyle = "rgba(242,230,201,0.75)";
+    ctx.font = "11px Orbitron, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("EXPLORING THE HOUSE…", W / 2, H * 0.78 + 18);
+  }
+
+  ctx.restore();
+}
+
+function drawCorridorPerspective(
+  ctx: CanvasRenderingContext2D,
+  theme: SceneTheme,
+  t: number,
+  rail: number,
+  exploring: boolean,
+) {
+  const vanishY = H * 0.38;
+  const scroll = (rail * 80) % 120;
+  const sway = exploring ? Math.sin(t * 1.2) * 4 : 0;
+
+  // Floor
+  const floorGrad = ctx.createLinearGradient(0, vanishY, 0, H);
+  floorGrad.addColorStop(0, theme === "lab" ? "#15202a" : "#1a1614");
+  floorGrad.addColorStop(1, "#0a0808");
+  ctx.fillStyle = floorGrad;
   ctx.beginPath();
-  ctx.moveTo(0, H * 0.62);
-  ctx.lineTo(W, H * 0.62);
-  ctx.lineTo(W, H);
-  ctx.lineTo(0, H);
+  ctx.moveTo(W * 0.42 + sway, vanishY);
+  ctx.lineTo(W * 0.58 + sway, vanishY);
+  ctx.lineTo(W + 40, H);
+  ctx.lineTo(-40, H);
+  ctx.closePath();
   ctx.fill();
 
-  // perspective lines
-  ctx.strokeStyle = "rgba(232,220,200,0.06)";
+  // Floor boards / tiles rushing toward camera
+  ctx.strokeStyle = "rgba(232,220,200,0.07)";
   ctx.lineWidth = 1;
-  for (let i = -4; i <= 4; i++) {
+  for (let i = 0; i < 14; i++) {
+    const p = (i / 14 + scroll / 120) % 1;
+    const y = vanishY + Math.pow(p, 1.6) * (H - vanishY);
+    const half = lerp(20, W * 0.55, p);
     ctx.beginPath();
-    ctx.moveTo(W / 2 + i * 18, H * 0.62);
-    ctx.lineTo(W / 2 + i * 140, H);
+    ctx.moveTo(W / 2 - half + sway, y);
+    ctx.lineTo(W / 2 + half + sway, y);
+    ctx.stroke();
+  }
+  // Center aisle
+  ctx.strokeStyle = "rgba(196,60,43,0.12)";
+  ctx.beginPath();
+  ctx.moveTo(W / 2 + sway * 0.5, vanishY);
+  ctx.lineTo(W / 2 - 30, H);
+  ctx.moveTo(W / 2 + sway * 0.5, vanishY);
+  ctx.lineTo(W / 2 + 30, H);
+  ctx.stroke();
+
+  // Left / right walls in perspective
+  const wallColor = theme === "lab" ? "#121820" : theme === "cave" ? "#161210" : "#141018";
+  ctx.fillStyle = wallColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(W * 0.42 + sway, vanishY);
+  ctx.lineTo(-40, H);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(W, 0);
+  ctx.lineTo(W * 0.58 + sway, vanishY);
+  ctx.lineTo(W + 40, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // Wall panel lines scrolling
+  ctx.strokeStyle = "rgba(232,220,200,0.08)";
+  for (let i = 0; i < 10; i++) {
+    const p = (i / 10 + scroll / 120) % 1;
+    const y0 = lerp(20, vanishY, 1 - p);
+    const xL0 = lerp(0, W * 0.42 + sway, 1 - Math.pow(1 - p, 1.2));
+    const xL1 = lerp(0, W * 0.42 + sway, 1 - Math.pow(1 - (p + 0.08), 1.2));
+    ctx.beginPath();
+    ctx.moveTo(xL0, y0);
+    ctx.lineTo(xL1, y0 + 40);
+    ctx.stroke();
+    const xR0 = lerp(W, W * 0.58 + sway, 1 - Math.pow(1 - p, 1.2));
+    ctx.beginPath();
+    ctx.moveTo(xR0, y0);
+    ctx.lineTo(lerp(W, W * 0.58 + sway, 1 - Math.pow(1 - (p + 0.08), 1.2)), y0 + 40);
     ctx.stroke();
   }
 
-  if (theme === "drive" || theme === "courtyard") {
-    drawTrees(ctx, t);
-    drawMansionSilhouette(ctx, theme === "drive" ? 0.55 : 0.85);
-  } else if (theme === "mansion") {
-    drawHall(ctx, t);
-  } else if (theme === "lab") {
-    drawLab(ctx, t);
-  } else if (theme === "cave") {
-    drawCave(ctx, t);
-  } else {
-    drawSanctum(ctx, t);
-  }
-
-  // fog
-  ctx.fillStyle = "rgba(40,50,45,0.15)";
-  ctx.fillRect(0, H * 0.45, W, H * 0.25);
-
-  ctx.restore();
-}
-
-function drawTrees(ctx: CanvasRenderingContext2D, t: number) {
-  for (let i = 0; i < 8; i++) {
-    const x = ((i * 140 + t * 30) % (W + 80)) - 40;
-    ctx.fillStyle = "#0a0e0a";
-    ctx.fillRect(x, H * 0.28, 18, H * 0.34);
-    ctx.beginPath();
-    ctx.ellipse(x + 9, H * 0.28, 40, 50, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawMansionSilhouette(ctx: CanvasRenderingContext2D, alpha: number) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = "#0a080a";
-  ctx.fillRect(W * 0.28, H * 0.18, W * 0.44, H * 0.44);
-  // roof
+  // Ceiling
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
   ctx.beginPath();
-  ctx.moveTo(W * 0.25, H * 0.2);
-  ctx.lineTo(W * 0.5, H * 0.06);
-  ctx.lineTo(W * 0.75, H * 0.2);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(W, 0);
+  ctx.lineTo(W * 0.58 + sway, vanishY);
+  ctx.lineTo(W * 0.42 + sway, vanishY);
   ctx.closePath();
   ctx.fill();
-  // windows
-  ctx.fillStyle = "#c43c2b";
+}
+
+function drawApproachGate(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const zoom = Math.min(1.35, 0.75 + rail * 0.02);
+  ctx.save();
+  ctx.translate(W / 2, H * 0.36);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-W / 2, -H * 0.36);
+
+  // Distant trees
+  for (let i = 0; i < 6; i++) {
+    const x = 60 + i * 160 + ((rail * 40) % 160);
+    ctx.fillStyle = "#0a100c";
+    ctx.fillRect(x, H * 0.22, 14, H * 0.28);
+    ctx.beginPath();
+    ctx.ellipse(x + 7, H * 0.22, 32, 44, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Mansion growing closer
+  ctx.fillStyle = "#0c0a0e";
+  ctx.fillRect(W * 0.3, H * 0.14, W * 0.4, H * 0.36);
+  ctx.beginPath();
+  ctx.moveTo(W * 0.27, H * 0.16);
+  ctx.lineTo(W / 2, H * 0.04);
+  ctx.lineTo(W * 0.73, H * 0.16);
+  ctx.closePath();
+  ctx.fill();
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 4; c++) {
-      ctx.globalAlpha = 0.35 + Math.sin(r + c) * 0.15;
-      ctx.fillRect(W * 0.34 + c * 70, H * 0.26 + r * 50, 28, 34);
+      const flick = 0.25 + Math.sin(t * 3 + r * 2 + c) * 0.15;
+      ctx.fillStyle = `rgba(196,60,43,${flick})`;
+      ctx.fillRect(W * 0.36 + c * 55, H * 0.2 + r * 42, 22, 28);
     }
   }
+  // Gate
+  ctx.strokeStyle = "#2a2420";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(W * 0.44, H * 0.36, W * 0.12, H * 0.14);
   ctx.restore();
 }
 
-function drawHall(ctx: CanvasRenderingContext2D, t: number) {
-  ctx.fillStyle = "#161018";
-  ctx.fillRect(W * 0.15, H * 0.1, W * 0.7, H * 0.52);
-  ctx.fillStyle = "rgba(196,60,43,0.25)";
+function drawCourtyardFacade(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const scroll = (rail * 60) % 200;
+  ctx.fillStyle = "#121016";
+  ctx.fillRect(W * 0.18, H * 0.1, W * 0.64, H * 0.4);
+  // Columns
   for (let i = 0; i < 5; i++) {
-    const flicker = 0.5 + Math.sin(t * 6 + i) * 0.2;
-    ctx.globalAlpha = flicker;
-    ctx.fillRect(W * 0.22 + i * 120, H * 0.2, 24, 40);
+    const x = W * 0.22 + i * 130 - scroll * 0.3;
+    ctx.fillStyle = "#1c181c";
+    ctx.fillRect(x, H * 0.12, 22, H * 0.36);
+    ctx.fillStyle = "#2a2228";
+    ctx.fillRect(x - 4, H * 0.12, 30, 12);
   }
-  ctx.globalAlpha = 1;
-  // stairs
-  ctx.fillStyle = "#1c1618";
-  for (let i = 0; i < 6; i++) {
-    const y = H * 0.55 - i * 12;
-    const w = 200 + i * 40;
-    ctx.fillRect(W / 2 - w / 2, y, w, 10);
-  }
+  // Doorway ahead
+  ctx.fillStyle = "#08060a";
+  ctx.fillRect(W * 0.44, H * 0.28, W * 0.12, H * 0.22);
+  ctx.fillStyle = `rgba(196,60,43,${0.15 + Math.sin(t * 2) * 0.08})`;
+  ctx.fillRect(W * 0.46, H * 0.3, W * 0.08, H * 0.08);
 }
 
-function drawLab(ctx: CanvasRenderingContext2D, t: number) {
-  ctx.fillStyle = "#101820";
-  ctx.fillRect(0, H * 0.15, W, H * 0.4);
-  ctx.strokeStyle = "rgba(100,180,200,0.25)";
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 6; i++) {
-    const x = 80 + i * 150;
-    ctx.strokeRect(x, H * 0.22, 60, 90);
-    ctx.fillStyle = `rgba(80,200,180,${0.08 + Math.sin(t * 3 + i) * 0.05})`;
-    ctx.fillRect(x + 8, H * 0.28, 44, 50);
+function drawGrandHall(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const scroll = (rail * 70) % 160;
+  // Side doors rushing past
+  for (let side = 0; side < 2; side++) {
+    for (let i = 0; i < 4; i++) {
+      const p = (i / 4 + scroll / 160) % 1;
+      const y = H * 0.18 + p * H * 0.35;
+      const depth = 1 - p;
+      const w = 28 + depth * 40;
+      const h = 50 + depth * 70;
+      const x = side === 0 ? lerp(40, W * 0.38, depth) : lerp(W - 40, W * 0.62, depth) - w;
+      ctx.fillStyle = "#0e0c10";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = `rgba(180,120,60,${0.1 + depth * 0.15})`;
+      ctx.fillRect(x + w * 0.3, y + h * 0.25, w * 0.15, h * 0.2);
+    }
   }
-}
-
-function drawCave(ctx: CanvasRenderingContext2D, _t: number) {
-  ctx.fillStyle = "#0e0c0a";
+  // Grand stairs ahead
+  ctx.fillStyle = "#1a1418";
+  for (let i = 0; i < 7; i++) {
+    const y = H * 0.5 - i * 10;
+    const ww = 160 + i * 36;
+    ctx.fillRect(W / 2 - ww / 2, y, ww, 9);
+  }
+  // Chandelier glow
+  ctx.fillStyle = `rgba(220,180,100,${0.08 + Math.sin(t * 2) * 0.03})`;
   ctx.beginPath();
-  ctx.moveTo(0, H * 0.55);
-  ctx.quadraticCurveTo(W * 0.25, H * 0.1, W * 0.5, H * 0.2);
-  ctx.quadraticCurveTo(W * 0.75, H * 0.08, W, H * 0.5);
+  ctx.arc(W / 2, H * 0.2, 50, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLabCorridor(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const scroll = (rail * 90) % 140;
+  for (let i = 0; i < 6; i++) {
+    const p = (i / 6 + scroll / 140) % 1;
+    const depth = 1 - p;
+    const y = H * 0.2 + p * H * 0.28;
+    const h = 40 + depth * 70;
+    const w = 30 + depth * 45;
+    // left tanks
+    let x = lerp(30, W * 0.36, depth);
+    ctx.strokeStyle = `rgba(80,200,180,${0.15 + depth * 0.25})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = `rgba(60,160,140,${0.06 + Math.sin(t * 3 + i) * 0.03})`;
+    ctx.fillRect(x + 4, y + 8, w - 8, h - 16);
+    // right
+    x = lerp(W - 30, W * 0.64, depth) - w;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillRect(x + 4, y + 8, w - 8, h - 16);
+  }
+  ctx.fillStyle = "rgba(100,180,200,0.08)";
+  ctx.fillRect(W * 0.46, H * 0.22, W * 0.08, H * 0.28);
+}
+
+function drawCaveTunnel(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const scroll = (rail * 55) % 100;
+  ctx.fillStyle = "#0c0a08";
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.15);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.05 + Math.sin(rail) * 8, W, H * 0.15);
   ctx.lineTo(W, 0);
   ctx.lineTo(0, 0);
   ctx.fill();
-  ctx.fillStyle = "#1a1612";
-  for (let i = 0; i < 7; i++) {
-    const x = 60 + i * 130;
+  for (let i = 0; i < 8; i++) {
+    const p = (i / 8 + scroll / 100) % 1;
+    const x = lerp(80, W / 2, 1 - p) + (i % 2 === 0 ? -40 : 40);
+    const y = H * 0.12 + p * H * 0.35;
+    ctx.fillStyle = "#181410";
     ctx.beginPath();
-    ctx.moveTo(x, H * 0.15);
-    ctx.lineTo(x + 20, H * 0.45);
-    ctx.lineTo(x - 20, H * 0.45);
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 12, y + 50 * (1 - p * 0.5));
+    ctx.lineTo(x - 12, y + 50 * (1 - p * 0.5));
     ctx.fill();
   }
+  ctx.fillStyle = `rgba(100,80,40,${0.05 + Math.sin(t) * 0.02})`;
+  ctx.fillRect(W * 0.45, H * 0.3, W * 0.1, H * 0.15);
 }
 
-function drawSanctum(ctx: CanvasRenderingContext2D, t: number) {
-  ctx.fillStyle = "#140810";
-  ctx.fillRect(W * 0.2, H * 0.08, W * 0.6, H * 0.5);
-  const pulse = 0.2 + Math.sin(t * 2) * 0.1;
+function drawSanctumChamber(ctx: CanvasRenderingContext2D, rail: number, t: number) {
+  const pulse = 0.18 + Math.sin(t * 2.2) * 0.1;
+  ctx.fillStyle = "#120810";
+  ctx.fillRect(W * 0.22, H * 0.1, W * 0.56, H * 0.42);
+  // Ritual circle
+  ctx.strokeStyle = `rgba(196,60,43,${0.35 + pulse})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(W / 2, H * 0.36, 55 + Math.min(20, rail), 0, Math.PI * 2);
+  ctx.stroke();
   ctx.fillStyle = `rgba(196,60,43,${pulse})`;
   ctx.beginPath();
-  ctx.arc(W / 2, H * 0.32, 70, 0, Math.PI * 2);
+  ctx.arc(W / 2, H * 0.36, 28, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "rgba(232,220,200,0.2)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(W * 0.35, H * 0.48, W * 0.3, 20);
+  // Pillars
+  ctx.fillStyle = "#1a1014";
+  ctx.fillRect(W * 0.24, H * 0.12, 28, H * 0.38);
+  ctx.fillRect(W * 0.72, H * 0.12, 28, H * 0.38);
+  ctx.fillStyle = "rgba(232,220,200,0.15)";
+  ctx.font = "10px Orbitron, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("THE HEART OF THE DEAD HOUSE", W / 2, H * 0.14);
 }
 
 export function drawEntity(ctx: CanvasRenderingContext2D, e: Entity, time: number) {
-  if (!e.alive && e.kind !== "breakable") return;
-  const bob = Math.sin(time * 4 + e.id) * 3;
+  const dying = e.dying ?? 0;
+  if (!e.alive && e.kind !== "breakable" && dying <= 0) return;
+
+  const bob = e.alive ? Math.sin(time * 4 + e.id) * 3 : 0;
+  const recoil = e.recoil ?? 0;
+  const recoilDir = e.recoilDir ?? 0;
+  const knock = recoil > 0 ? Math.sin(recoil * 20) * 6 * recoilDir : 0;
+  const lean = recoil > 0 ? recoilDir * recoil * 0.35 : 0;
+  const deathLean = dying > 0 ? dying * 1.1 : 0;
+  const deathDrop = dying > 0 ? dying * 40 : 0;
+
   ctx.save();
-  ctx.translate(e.x, e.y + bob);
-  const s = e.scale * lerp(0.7, 1.35, e.z);
+  ctx.translate(e.x + knock, e.y + bob + deathDrop);
+  ctx.rotate(lean + (recoilDir >= 0 ? deathLean : -deathLean));
+  const s = e.scale * lerp(0.7, 1.35, e.z) * (dying > 0 ? 1 - dying * 0.15 : 1);
   ctx.scale(s, s);
   if (e.hitFlash > 0) {
-    ctx.filter = "brightness(2.5)";
+    ctx.filter = "brightness(2.8) saturate(1.4)";
+  }
+  if (dying > 0) {
+    ctx.globalAlpha = 1 - dying * 0.85;
   }
 
-  if (e.kind === "enemy") drawEnemy(ctx, e);
+  if (e.kind === "enemy") drawEnemy(ctx, e, time);
   else if (e.kind === "civilian") drawCivilian(ctx, e);
   else if (e.kind === "breakable") drawCrate(ctx, e);
   else if (e.kind === "item") drawItem(ctx, e);
@@ -190,10 +369,11 @@ export function drawEntity(ctx: CanvasRenderingContext2D, e: Entity, time: numbe
   ctx.restore();
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, e: Entity) {
+function drawEnemy(ctx: CanvasRenderingContext2D, e: Entity, time: number) {
   const v = e.variant ?? "walker";
+  const rage = e.hitFlash && e.hitFlash > 0;
   if (v === "crawler") {
-    ctx.fillStyle = "#3a4a2a";
+    ctx.fillStyle = rage ? "#5a3a2a" : "#3a4a2a";
     ctx.beginPath();
     ctx.ellipse(0, 0, 34, 18, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -201,40 +381,79 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Entity) {
     ctx.beginPath();
     ctx.arc(18, -8, 14, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#c43c2b";
+    ctx.fillStyle = "#ff3b2f";
     ctx.beginPath();
-    ctx.arc(24, -10, 3, 0, Math.PI * 2);
-    ctx.arc(20, -14, 3, 0, Math.PI * 2);
+    ctx.arc(24, -10, 3.5, 0, Math.PI * 2);
+    ctx.arc(20, -14, 3.5, 0, Math.PI * 2);
     ctx.fill();
+    if (rage) {
+      ctx.strokeStyle = "rgba(196,60,43,0.8)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(8, 0);
+      ctx.lineTo(22, 8);
+      ctx.stroke();
+    }
     return;
   }
 
+  const armSwing = Math.sin(time * 6 + e.id) * (v === "runner" ? 10 : 5);
   // legs
   ctx.fillStyle = "#2a3028";
   ctx.fillRect(-14, 10, 10, 36);
   ctx.fillRect(4, 10, 10, 36);
   // body
-  ctx.fillStyle = v === "brute" ? "#3a2820" : v === "runner" ? "#2e3a28" : "#34382e";
+  ctx.fillStyle = rage
+    ? "#5a3828"
+    : v === "brute"
+      ? "#3a2820"
+      : v === "runner"
+        ? "#2e3a28"
+        : "#34382e";
   ctx.fillRect(-22, -28, 44, 44);
-  // arms
+  // torn cloth detail
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(-18, -10, 12, 20);
+  // arms reaching
   ctx.fillStyle = "#2a2820";
-  ctx.fillRect(-36, -20, 14, 34);
-  ctx.fillRect(22, -20, 14, 34);
+  ctx.save();
+  ctx.translate(-28, -12);
+  ctx.rotate((-20 + armSwing) * (Math.PI / 180));
+  ctx.fillRect(-8, 0, 14, 36);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(28, -12);
+  ctx.rotate((20 - armSwing) * (Math.PI / 180));
+  ctx.fillRect(-6, 0, 14, 36);
+  ctx.restore();
   // head
-  ctx.fillStyle = "#4a5a40";
+  ctx.fillStyle = rage ? "#6a4a38" : "#4a5a40";
   ctx.beginPath();
   ctx.arc(0, -42, 16, 0, Math.PI * 2);
   ctx.fill();
+  // jaw
+  ctx.fillStyle = "#3a4030";
+  ctx.fillRect(-8, -36, 16, 8);
   // eyes
-  ctx.fillStyle = "#c43c2b";
+  ctx.fillStyle = "#ff3b2f";
   ctx.beginPath();
-  ctx.arc(-6, -44, 3, 0, Math.PI * 2);
-  ctx.arc(6, -44, 3, 0, Math.PI * 2);
+  ctx.arc(-6, -44, rage ? 4 : 3, 0, Math.PI * 2);
+  ctx.arc(6, -44, rage ? 4 : 3, 0, Math.PI * 2);
   ctx.fill();
   if (v === "brute") {
     ctx.strokeStyle = "#1a1010";
     ctx.lineWidth = 4;
     ctx.strokeRect(-24, -30, 48, 20);
+  }
+  // snarl when hit
+  if (rage) {
+    ctx.strokeStyle = "#c43c2b";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, -32);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(6, -32);
+    ctx.stroke();
   }
 }
 
