@@ -2,10 +2,8 @@ import type { Vec2 } from "../game/types";
 import { W, H } from "../game/types";
 
 export function isTouchDevice(): boolean {
-  return (
-    window.matchMedia("(hover: none) and (pointer: coarse)").matches ||
-    navigator.maxTouchPoints > 0
-  );
+  // Prefer coarse pointer without hover — avoids treating laptop trackpads / Surface as phones
+  return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 }
 
 export class Input {
@@ -20,19 +18,25 @@ export class Input {
 
   private canvas: HTMLCanvasElement;
   private outsideClick = false;
-  private aimingTouchId: number | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    canvas.addEventListener("mousemove", (e) => this.onMouseMove(e));
-    canvas.addEventListener("mousedown", (e) => {
-      if (e.button === 0) {
-        this.shootQueued[0] = true;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      this.setMouseFromClient(e.clientX, e.clientY);
+      if (this.isOffPlayfield(this.mouse.x, this.mouse.y)) {
+        this.reloadQueued[0] = true;
+        return;
       }
+      this.shootQueued[0] = true;
+    };
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", (e) => {
+      this.setMouseFromClient(e.clientX, e.clientY);
     });
     window.addEventListener("keydown", (e) => this.onKeyDown(e));
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
-    window.addEventListener("mousedown", (e) => {
+    window.addEventListener("pointerdown", (e) => {
       if (!(e.target instanceof Node) || !canvas.contains(e.target)) {
         const t = e.target as HTMLElement | null;
         if (t?.closest?.("#btn-reload")) return;
@@ -40,63 +44,11 @@ export class Input {
       }
     });
 
-    canvas.addEventListener(
-      "touchstart",
-      (e) => {
-        e.preventDefault();
-        for (const t of Array.from(e.changedTouches)) {
-          this.setMouseFromClient(t.clientX, t.clientY);
-          this.aimingTouchId = t.identifier;
-          this.shootQueued[0] = true;
-          // Edge tap reloads like arcade off-screen reload
-          if (this.isOffPlayfield(this.mouse.x, this.mouse.y)) {
-            this.reloadQueued[0] = true;
-            this.shootQueued[0] = false;
-          }
-        }
-      },
-      { passive: false },
-    );
+    // Prevent page scroll while touching the game
     canvas.addEventListener(
       "touchmove",
       (e) => {
         e.preventDefault();
-        for (const t of Array.from(e.changedTouches)) {
-          if (this.aimingTouchId === null || t.identifier === this.aimingTouchId) {
-            this.setMouseFromClient(t.clientX, t.clientY);
-            this.aimingTouchId = t.identifier;
-          }
-        }
-      },
-      { passive: false },
-    );
-    canvas.addEventListener(
-      "touchend",
-      (e) => {
-        e.preventDefault();
-        for (const t of Array.from(e.changedTouches)) {
-          if (t.identifier === this.aimingTouchId) this.aimingTouchId = null;
-        }
-      },
-      { passive: false },
-    );
-    canvas.addEventListener(
-      "touchcancel",
-      (e) => {
-        for (const t of Array.from(e.changedTouches)) {
-          if (t.identifier === this.aimingTouchId) this.aimingTouchId = null;
-        }
-      },
-      { passive: false },
-    );
-
-    // Block page scroll / pinch while playing
-    document.addEventListener(
-      "touchmove",
-      (e) => {
-        if (e.target === canvas || canvas.contains(e.target as Node)) {
-          e.preventDefault();
-        }
       },
       { passive: false },
     );
@@ -121,12 +73,9 @@ export class Input {
     );
   }
 
-  private onMouseMove(e: MouseEvent) {
-    this.setMouseFromClient(e.clientX, e.clientY);
-  }
-
   private setMouseFromClient(clientX: number, clientY: number) {
     const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
     this.mouse.x = ((clientX - rect.left) / rect.width) * W;
     this.mouse.y = ((clientY - rect.top) / rect.height) * H;
     this.mouse.x = Math.max(0, Math.min(W, this.mouse.x));

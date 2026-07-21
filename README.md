@@ -4,21 +4,28 @@ Browser arcade rail shooter — a fan tribute inspired by classic light-gun game
 
 All art, audio, and branding are original. Not affiliated with SEGA.
 
-## Play
+## Play (important)
+
+Do **not** open `index.html` directly in the browser (that shows a blank/white page with no game). Use one of these:
+
+### Local
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the local URL Vite prints (usually `http://localhost:5173`).
+Open the URL Vite prints (usually `http://localhost:5173`).
 
-Production build:
+### Production build / GitHub Pages
 
 ```bash
 npm run build
-npm run preview
 ```
+
+This writes a static site to `docs/`. In the GitHub repo: **Settings → Pages → Deploy from branch → `main` / `/docs`**.
+
+Then play at: `https://kingsleykwan.github.io/the_dead_house/`
 
 ## Controls
 
@@ -27,11 +34,10 @@ npm run preview
 | Aim | Mouse | Arrow keys | Drag finger |
 | Shoot | Left click | Ctrl | Tap |
 | Reload | `R` or click outside | `F` | **RELOAD** button or tap screen edge |
-| Start / Continue | Space / Enter | — | Tap screen |
+| Start / Continue | Space / Enter / click | — | Tap screen |
 | Join mid-game | — | Press `2` | Desktop only |
 
-On phones and tablets, landscape orientation is recommended. A rotate hint appears in portrait.
-
+On phones and tablets, landscape orientation is recommended.
 
 ## How to play
 

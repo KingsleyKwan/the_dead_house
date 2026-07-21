@@ -273,7 +273,8 @@ export class Game {
     const ui = document.getElementById("mobile-ui");
     if (!ui) return;
     const show = this.input.touch && showReload;
-    ui.classList.toggle("hidden", !show);
+    if (show) ui.removeAttribute("hidden");
+    else ui.setAttribute("hidden", "");
     ui.setAttribute("aria-hidden", show ? "false" : "true");
   }
 
